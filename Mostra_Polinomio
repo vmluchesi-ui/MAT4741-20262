@@ -1,0 +1,22 @@
+def mostra_polinomio(c, var="x"):
+    termos = []
+    n = len(c) - 1
+
+    for i, coef in enumerate(c):
+        grau = i
+
+        if coef == 0:
+            continue
+
+        # termo constante
+        if grau == 0:
+            termos.append(f"{coef}")
+        # termo de grau 1
+        elif grau == 1:
+            termos.append(f"{coef}{var}")
+        # termo de grau >= 2
+        else:
+            termos.append(f"{coef}{var}^{grau}")
+
+    polinomio = " + ".join(termos)
+    print(f"P({var}) = {polinomio}")
