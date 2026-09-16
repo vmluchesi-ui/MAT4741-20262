@@ -1,0 +1,81 @@
+import numpy as np
+import scipy.linalg as sla
+ 
+
+ 
+def ler_matriz(prompt):
+    texto = input(prompt)
+    # aceita o mesmo formato do MATLAB/Julia: "[[4,1,-1],[2,7,1],[1,-3,12]]"
+    # ou, mais simples de digitar, linhas separadas por ';' tipo "4 1 -1; 2 7 1; 1 -3 12"
+    texto = texto.strip()
+    if texto.startswith("["):
+        return np.array(eval(texto), dtype=float)
+    linhas = texto.split(";")
+    dados = [[float(v) for v in linha.split()] for linha in linhas]
+    return np.array(dados, dtype=float)
+ 
+ 
+def main():
+    A = ler_matriz("Entre com os coeficientes da Matriz A (ex: 4 1 -1; 2 7 1; 1 -3 12): ")
+    B = ler_matriz("Entre com os coeficientes da Matriz B (ex: 3; 19; 31): ")
+    if B.ndim == 1:
+        B = B.reshape(-1, 1)
+ 
+    # --- Decomposicao LU ---
+    # scipy.linalg.lu faz pivotamento parcial por padrao (assim como o lu()
+    # do MATLAB/Julia) e devolve P, L, U tais que A = P @ L @ U. Para
+    # reconstruir o mesmo L "psicologicamente triangular" que o MATLAB
+    # retorna com [L,U]=lu(A) (aquele que satisfaz A = L*U diretamente,
+    # sem precisar aplicar a permutacao separadamente), fazemos L = P @ L.
+    Pperm, L0, U = sla.lu(A)
+    L = Pperm @ L0
+ 
+    print("A Matriz triangular inferior L é")
+    print(L)
+    print("A Matriz triangular superior U é")
+    print(U)
+ 
+    P = np.hstack([L, B])
+    li, col = P.shape  # aqui "li","col" sao contagens (1-indexadas), como no MATLAB/Julia
+ 
+    # ====================================================
+    # Algoritmo 1 - Substituicao avancada (resolve L*Y = B)
+    # ====================================================
+        for m in range(1, li + 1):
+        a = P[m - 1, m - 1]
+        if a == 0:
+            print("O metodo nao e aplicavel ")
+            return
+        P[m - 1, :] = P[m - 1, :] / a
+ 
+    soma = 0.0
+    for m in range(1, li):
+        for k in range(li - m, li):
+            soma = soma + P[m + 1 - 1, col - k - 1 - 1] * P[col - k - 1 - 1, col - 1]
+            P[m + 1 - 1, col - 1] = P[m + 1 - 1, col - 1] - soma
+            soma = 0.0
+    Y = P[:, col - 1]
+    print("A matriz Y=UX e")
+    print(Y)
+ 
+    # ====================================================
+    # Algoritmo 2 - Substituicao atrasada (resolve U*X = Y)
+    # ====================================================
+    Q = np.hstack([U, Y.reshape(-1, 1)])
+    for m in range(1, li + 1):
+        b = Q[m - 1, m - 1]
+        if b == 0:
+            print("O metodo nao e aplicavel")
+            return
+        Q[m - 1, :] = Q[m - 1, :] / b
+ 
+    soma = 0.0
+    for m in range(li, 1, -1):
+        for k in range(m + 1, col + 1):
+            soma = soma + Q[m - 1 - 1, k - 1 - 1] * Q[k - 1 - 1, col - 1]
+            Q[m - 1 - 1, col - 1] = Q[m - 1 - 1, col - 1] - soma
+            soma = 0.0
+    X = Q[:, col - 1]
+    print("A solucao do sistema X e")
+    print(X)
+ 
