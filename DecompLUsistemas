@@ -1,0 +1,68 @@
+function main()
+    A = ler_matriz("Entre com os coeficientes da Matriz A (ex: [4 1 -1; 2 7 1; 1 -3 12]): ")
+    B = ler_matriz("Entre com os coeficientes da Matriz B (ex: [3; 19; 31]): ")
+
+    # --- Decomposição LU ---
+    # A funcao lu() do Julia faz pivotamento parcial por padrao (assim como
+    # a lu() do MATLAB), mas devolve L,U,p separados. Para reconstruir o
+    # mesmo L "psicologicamente triangular" que o MATLAB retorna (aquele
+    # que satisfaz A = L*U diretamente, sem precisar aplicar a permutacao
+    # separadamente), fazemos L = P'*L_pivotado.
+    F = lu(A)
+    L = F.P' * F.L
+    U = F.U
+
+    P = [L B]
+    li, col = size(P)
+
+    # ====================================================
+    # Algoritmo 1 - Substituição avançada (resolve L*Y = B)
+    # ====================================================
+    for m in 1:li
+        a = P[m, m]
+        if a == 0
+            println("O método não é aplicável ")
+            return
+        end
+        P[m, :] = P[m, :] ./ a
+    end
+
+    soma = 0.0
+    for m in 1:li-1
+        for k in li-m:li-1
+            soma = soma + P[m+1, col-k-1] * P[col-k-1, col]
+            P[m+1, col] = P[m+1, col] - soma
+            soma = 0.0
+        end
+    end
+    Y = P[:, col]
+    println("A matriz Y=UX é")
+    display(Y); println()
+
+    # ====================================================
+    # Algoritmo 2 - Substituição atrasada (resolve U*X = Y)
+    # ====================================================
+    Q = [U Y]
+    for m in 1:li
+        b = Q[m, m]
+        if b == 0
+            println("O método não é aplicável")
+            return
+        end
+        Q[m, :] = Q[m, :] ./ b
+    end
+
+    soma = 0.0
+    for m in li:-1:2
+        for k in m+1:col
+            soma = soma + Q[m-1, k-1] * Q[k-1, col]
+            Q[m-1, col] = Q[m-1, col] - soma
+            soma = 0.0
+        end
+    end
+    X = Q[:, col]
+    println("A solução do sistema X é")
+    display(X); println()
+end
+
+main()
