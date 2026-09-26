@@ -1,0 +1,103 @@
+"""
+Decomposição de Cholesky e resolução de Ax = b
+MAT1831 Métodos Numéricos
+
+Implementação fiel aos Algoritmos 1 e 2 da aula.
+
+Convenção dos algoritmos: R é triangular INFERIOR e A = R Rᵀ.
+Para a convenção do Teorema 1.1 (R triangular superior, A = Rᵀ R), use R.T.
+"""
+
+import numpy as np
+
+
+def decomposicao_cholesky(A):
+    """Algoritmo 1: devolve R triangular inferior com A = R Rᵀ."""
+    A = np.asarray(A, dtype=float)
+
+    # Verifica se a matriz é simétrica (com tolerância numérica)
+    if not np.allclose(A, A.T):
+        raise ValueError("A matriz deve ser simétrica.")
+
+    n = A.shape[0]
+    R = np.zeros((n, n))
+
+    for j in range(n):
+        soma = 0.0
+        for k in range(j):
+            soma += R[j, k] ** 2
+
+        t = A[j, j] - soma
+        if t <= 0:
+            raise ValueError("A matriz não é definida positiva.")
+        R[j, j] = np.sqrt(t)
+
+        for i in range(j + 1, n):
+            soma = 0.0
+            for k in range(j):
+                soma += R[i, k] * R[j, k]
+            R[i, j] = (A[i, j] - soma) / R[j, j]
+
+    return R
+
+
+def resolve_cholesky(A, b):
+    """Algoritmo 2: resolve Ax = b via Cholesky."""
+    R = decomposicao_cholesky(A)
+    b = np.asarray(b, dtype=float).ravel()
+    n = b.size
+
+    y = np.zeros(n)
+    x = np.zeros(n)
+
+    # Etapa 1: resolver R y = b (substituição direta)
+    for i in range(n):
+        soma = 0.0
+        for k in range(i):
+            soma += R[i, k] * y[k]
+        y[i] = (b[i] - soma) / R[i, i]
+
+    # Etapa 2: resolver Rᵀ x = y (substituição retroativa)
+    for i in range(n - 1, -1, -1):
+        soma = 0.0
+        for k in range(i + 1, n):
+            soma += R[k, i] * x[k]
+        x[i] = (y[i] - soma) / R[i, i]
+
+    return x
+
+
+if __name__ == "__main__":
+    np.set_printoptions(precision=6, suppress=True)
+
+    # Exemplos 1.1 a 1.3 da aula
+    A = np.array([[1, 2, 4],
+                  [2, 8, 10],
+                  [4, 10, 26]], dtype=float)
+    b = np.array([1, -4, 10], dtype=float)
+
+    R = decomposicao_cholesky(A)
+    print("R (triangular inferior, A = R Rᵀ):")
+    print(R)
+    print("\nRᵀ (triangular superior, como no Teorema 1.1):")
+    print(R.T)
+
+    print("\ndet(A)        =", round(np.linalg.det(A), 10))
+    print("(prod r_ii)^2 =", np.prod(np.diag(R)) ** 2)
+    print("||A - R Rᵀ||  =", np.linalg.norm(A - R @ R.T))
+
+    x = resolve_cholesky(A, b)
+    print("\nSolução x =", x)
+    print("||Ax - b||    =", np.linalg.norm(A @ x - b))
+
+    # Comparação com a biblioteca
+    print("\nConfere com np.linalg.cholesky?",
+          np.allclose(R, np.linalg.cholesky(A)))
+
+    # Contraexemplo: simétrica, mas não definida positiva (Δ2 = -3)
+    B = np.array([[1, 2],
+                  [2, 1]], dtype=float)
+    try:
+        decomposicao_cholesky(B)
+    except ValueError as e:
+        print("\nContraexemplo [[1,2],[2,1]] ->", e)
