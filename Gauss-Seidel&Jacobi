@@ -1,0 +1,186 @@
+"""
+Métodos iterativos para Ax = b: Gauss-Seidel e Jacobi.
+
+Decomposição: A = L + D + U
+  (L estritamente triangular inferior, D diagonal, U estritamente triangular superior)
+
+Forma matricial  x^(k+1) = T x^(k) + c
+  Jacobi:        T_J  = -D^{-1}(L + U),     c_J  = D^{-1} b
+  Gauss-Seidel:  T_GS = -(D + L)^{-1} U,    c_GS = (D + L)^{-1} b
+  (no Gauss-Seidel isso equivale a resolver (D + L) x^(k+1) = b - U x^(k))
+
+Teorema: a iteração converge para qualquer x^(0)  <=>  rho(T) < 1,
+onde rho(T) = max |lambda_i(T)| é o raio espectral.
+Estimativa: o erro cai ~ rho(T)^k, logo k ≈ log(tol) / log(rho(T)).
+
+Critério de parada: ||x^(k+1) - x^(k)||_inf / ||x^(k+1)||_inf < tol
+"""
+
+import numpy as np
+from scipy.linalg import solve_triangular
+
+
+# ----------------------------------------------------------------------
+# Utilidades
+# ----------------------------------------------------------------------
+def decompor(A):
+    """Retorna L, D, U com A = L + D + U."""
+    A = np.asarray(A, dtype=float)
+    return np.tril(A, -1), np.diag(np.diag(A)), np.triu(A, 1)
+
+
+def diagonal_dominante(A):
+    """Estritamente diagonal dominante por linhas
+    (condição suficiente, não necessária, para convergência)."""
+    A = np.abs(np.asarray(A, dtype=float))
+    d = np.diag(A)
+    return np.all(d > A.sum(axis=1) - d)
+
+
+def matriz_iteracao(A, metodo):
+    """Matriz de iteração T do método ('jacobi' ou 'gs')."""
+    L, D, U = decompor(A)
+    if metodo == "jacobi":
+        return -np.linalg.solve(D, L + U)
+    if metodo == "gs":
+        return -solve_triangular(D + L, U, lower=True)
+    raise ValueError("metodo deve ser 'jacobi' ou 'gs'")
+
+
+def raio_espectral(T):
+    return np.max(np.abs(np.linalg.eigvals(T)))
+
+
+def _verificar(A, b):
+    A = np.asarray(A, dtype=float)
+    b = np.asarray(b, dtype=float)
+    n = len(b)
+    if A.shape != (n, n):
+        raise ValueError("A deve ser quadrada e compatível com b.")
+    if np.any(np.diag(A) == 0):
+        raise ValueError("Há zero na diagonal; reordene as equações.")
+    return A, b, n
+
+
+def _imprimir_cabecalho(n):
+    print(f"{'k':>4} | " + " | ".join(f"{'x' + str(i + 1):>12}" for i in range(n))
+          + f" | {'erro rel.':>12}")
+    print("-" * (8 + 15 * (n + 1)))
+
+
+def _imprimir_linha(k, x, erro):
+    print(f"{k:>4} | " + " | ".join(f"{xi:>12.8f}" for xi in x) + f" | {erro:>12.3e}")
+
+
+def _erro_rel(x, x_ant):
+    return np.linalg.norm(x - x_ant, np.inf) / max(np.linalg.norm(x, np.inf), 1e-30)
+
+
+# ----------------------------------------------------------------------
+# 1) Gauss-Seidel componente a componente (forma clássica)
+# ----------------------------------------------------------------------
+def gauss_seidel(A, b, x0=None, tol=1e-8, max_iter=500, verbose=True):
+    """x_i^(k+1) = (b_i - sum_{j<i} a_ij x_j^(k+1) - sum_{j>i} a_ij x_j^(k)) / a_ii"""
+    A, b, n = _verificar(A, b)
+    x = np.zeros(n) if x0 is None else np.asarray(x0, dtype=float).copy()
+    if verbose:
+        _imprimir_cabecalho(n)
+
+    for k in range(1, max_iter + 1):
+        x_ant = x.copy()
+        for i in range(n):
+            s1 = A[i, :i] @ x[:i]            # valores já atualizados
+            s2 = A[i, i + 1:] @ x_ant[i + 1:]  # valores da iteração anterior
+            x[i] = (b[i] - s1 - s2) / A[i, i]
+        erro = _erro_rel(x, x_ant)
+        if verbose:
+            _imprimir_linha(k, x, erro)
+        if erro < tol:
+            return x, k
+
+    print(f"Atenção: não convergiu em {max_iter} iterações.")
+    return x, max_iter
+
+
+# ----------------------------------------------------------------------
+# 2) Forma matricial: Jacobi e Gauss-Seidel
+# ----------------------------------------------------------------------
+def iterativo_matricial(A, b, metodo="gs", x0=None, tol=1e-8, max_iter=500, verbose=False):
+    """Jacobi:       D x^(k+1)     = b - (L + U) x^(k)
+       Gauss-Seidel: (D + L) x^(k+1) = b - U x^(k)   (substituição progressiva)"""
+    A, b, n = _verificar(A, b)
+    L, D, U = decompor(A)
+    x = np.zeros(n) if x0 is None else np.asarray(x0, dtype=float).copy()
+    if verbose:
+        _imprimir_cabecalho(n)
+
+    for k in range(1, max_iter + 1):
+        x_ant = x.copy()
+        if metodo == "jacobi":
+            x = (b - (L + U) @ x_ant) / np.diag(D)
+        elif metodo == "gs":
+            x = solve_triangular(D + L, b - U @ x_ant, lower=True)
+        else:
+            raise ValueError("metodo deve ser 'jacobi' ou 'gs'")
+        erro = _erro_rel(x, x_ant)
+        if verbose:
+            _imprimir_linha(k, x, erro)
+        if erro < tol:
+            return x, k
+
+    print(f"Atenção: {metodo} não convergiu em {max_iter} iterações.")
+    return x, max_iter
+
+
+# ----------------------------------------------------------------------
+# 3) Comparação Jacobi x Gauss-Seidel
+# ----------------------------------------------------------------------
+def comparar(A, b, tol=1e-8, max_iter=500, titulo=""):
+    A, b, n = _verificar(A, b)
+    print("=" * 70)
+    if titulo:
+        print(titulo)
+    print(f"Diagonal dominante: {'sim' if diagonal_dominante(A) else 'não'}")
+    print(f"{'Método':<14}{'rho(T)':>12}{'k estimado':>14}{'k obtido':>12}{'resíduo':>14}")
+    print("-" * 66)
+    for nome, met in [("Jacobi", "jacobi"), ("Gauss-Seidel", "gs")]:
+        rho = raio_espectral(matriz_iteracao(A, met))
+        k_est = f"{np.log(tol) / np.log(rho):.1f}" if 0 < rho < 1 else "diverge"
+        x, k = iterativo_matricial(A, b, met, tol=tol, max_iter=max_iter)
+        res = np.linalg.norm(b - A @ x, np.inf)
+        print(f"{nome:<14}{rho:>12.6f}{k_est:>14}{k:>12d}{res:>14.3e}")
+    print()
+
+
+if __name__ == "__main__":
+    # Exemplo 1 (solução exata: x = [1, 2, -1, 1])
+    A1 = [[10, -1,  2,  0],
+          [-1, 11, -1,  3],
+          [ 2, -1, 10, -1],
+          [ 0,  3, -1,  8]]
+    b1 = [6, 25, -11, 15]
+
+    print("Gauss-Seidel (componente a componente) — Exemplo 1\n")
+    x, it = gauss_seidel(A1, b1)
+    print(f"\nSolução após {it} iterações: {np.round(x, 10)}\n")
+
+    comparar(A1, b1, titulo="Exemplo 1: matriz diagonal dominante")
+
+    # Exemplo 2: tridiagonal (-1, 2, -1) — Poisson 1D.
+    # Matriz consistentemente ordenada: rho(T_GS) = rho(T_J)^2,
+    # ou seja, Gauss-Seidel precisa de ~metade das iterações de Jacobi.
+    n = 10
+    A2 = 2 * np.eye(n) - np.eye(n, k=1) - np.eye(n, k=-1)
+    b2 = A2 @ np.ones(n)  # solução exata: vetor de uns
+    comparar(A2, b2, max_iter=2000, titulo=f"Exemplo 2: tridiagonal (-1, 2, -1), n = {n}")
+    rJ = raio_espectral(matriz_iteracao(A2, "jacobi"))
+    rGS = raio_espectral(matriz_iteracao(A2, "gs"))
+    print(f"Verificação: rho(T_J)^2 = {rJ**2:.6f}  vs  rho(T_GS) = {rGS:.6f}\n")
+
+    # Exemplo 3: Jacobi diverge, Gauss-Seidel converge
+    # (A simétrica positiva definida => GS sempre converge; Jacobi não necessariamente)
+    A3 = [[1.0, 0.8, 0.8],
+          [0.8, 1.0, 0.8],
+          [0.8, 0.8, 1.0]]
+    b3 = np.array(A3) @ np.ones(3)
+    comparar(A3, b3, max_iter=200, titulo="Exemplo 3: SPD, não diagonal dominante")
