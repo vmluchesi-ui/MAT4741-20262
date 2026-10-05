@@ -1,0 +1,161 @@
+"""
+Método de Newton para sistemas não lineares F(x) = 0,  F: R^n -> R^n.
+
+Iteração:
+    J(x^(k)) s^(k) = -F(x^(k))        (resolve o sistema linear; NÃO inverte J)
+    x^(k+1) = x^(k) + s^(k)
+
+J é a matriz jacobiana: J_ij = dF_i / dx_j.
+Se J for indisponível, usa-se aproximação por diferenças finitas progressivas:
+    J[:, j] ≈ (F(x + h e_j) - F(x)) / h,   h = sqrt(eps) * max(1, |x_j|)
+
+Convergência: se x0 estiver suficientemente perto de x* e J(x*) for não singular,
+a convergência é quadrática:  ||e^(k+1)|| ≈ C ||e^(k)||^2.
+
+Critérios de parada: ||s^(k)||_inf / ||x^(k+1)||_inf < tol   ou   ||F(x^(k+1))||_inf < tol_F
+"""
+
+import numpy as np
+
+
+def jacobiana_numerica(F, x, Fx=None):
+    """Jacobiana por diferenças finitas progressivas."""
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    Fx = F(x) if Fx is None else Fx
+    J = np.empty((len(Fx), n))
+    for j in range(n):
+        h = np.sqrt(np.finfo(float).eps) * max(1.0, abs(x[j]))
+        xh = x.copy()
+        xh[j] += h
+        J[:, j] = (F(xh) - Fx) / h
+    return J
+
+
+def newton_sistema(F, x0, J=None, tol=1e-10, tol_F=1e-12, max_iter=50, verbose=True):
+    """
+    F  : função que recebe x (array) e devolve F(x) (array)
+    x0 : aproximação inicial
+    J  : função que devolve a jacobiana J(x); se None, usa diferenças finitas
+    Retorna (x, número de iterações).
+    """
+    x = np.asarray(x0, dtype=float).copy()
+    n = len(x)
+
+    if verbose:
+        print(f"{'k':>3} | " + " | ".join(f"{'x' + str(i + 1):>16}" for i in range(n))
+              + f" | {'||F(x)||_inf':>12} | {'||s||_inf':>12}")
+        print("-" * (7 + 19 * n + 32))
+        print(f"{0:>3} | " + " | ".join(f"{xi:>16.12f}" for xi in x)
+              + f" | {np.linalg.norm(F(x), np.inf):>12.3e} | {'':>12}")
+
+    for k in range(1, max_iter + 1):
+        Fx = F(x)
+        Jx = J(x) if J is not None else jacobiana_numerica(F, x, Fx)
+
+        try:
+            s = np.linalg.solve(Jx, -Fx)
+        except np.linalg.LinAlgError:
+            raise RuntimeError(f"Jacobiana singular na iteração {k}; "
+                               "tente outra aproximação inicial.")
+
+        x = x + s
+        normF = np.linalg.norm(F(x), np.inf)
+        norm_s = np.linalg.norm(s, np.inf)
+
+        if verbose:
+            print(f"{k:>3} | " + " | ".join(f"{xi:>16.12f}" for xi in x)
+                  + f" | {normF:>12.3e} | {norm_s:>12.3e}")
+
+        if norm_s / max(np.linalg.norm(x, np.inf), 1e-30) < tol or normF < tol_F:
+            return x, k
+
+    print(f"Atenção: não convergiu em {max_iter} iterações.")
+    return x, max_iter
+
+
+def ordem_convergencia(F, x0, x_exato, J=None, max_iter=10):
+    """Mostra e_k = ||x^(k) - x*|| e as razões e_{k+1}/e_k e e_{k+1}/e_k^2."""
+    x = np.asarray(x0, dtype=float).copy()
+    x_exato = np.asarray(x_exato, dtype=float)
+    erros = [np.linalg.norm(x - x_exato, np.inf)]
+    for _ in range(max_iter):
+        Fx = F(x)
+        Jx = J(x) if J is not None else jacobiana_numerica(F, x, Fx)
+        x = x + np.linalg.solve(Jx, -Fx)
+        erros.append(np.linalg.norm(x - x_exato, np.inf))
+        if erros[-1] < 1e-15:
+            break
+
+    print(f"{'k':>3} | {'e_k':>12} | {'e_k+1/e_k':>12} | {'e_k+1/e_k^2':>12}")
+    print("-" * 49)
+    for k, e in enumerate(erros):
+        if k == 0:
+            print(f"{k:>3} | {e:>12.3e} |")
+        elif e < 1e-14:   # erro no nível do arredondamento: razões perdem sentido
+            print(f"{k:>3} | {e:>12.3e} | (precisão de máquina atingida)")
+            break
+        else:
+            print(f"{k:>3} | {e:>12.3e} | {e / erros[k-1]:>12.3e} | {e / erros[k-1]**2:>12.3e}")
+
+
+if __name__ == "__main__":
+    # ------------------------------------------------------------------
+    # Exemplo 1 (Burden & Faires): solução x* = (0.5, 0, -pi/6)
+    #   3 x1 - cos(x2 x3) - 1/2                 = 0
+    #   x1^2 - 81 (x2 + 0.1)^2 + sin x3 + 1.06  = 0
+    #   exp(-x1 x2) + 20 x3 + (10 pi - 3)/3     = 0
+    # ------------------------------------------------------------------
+    def F1(x):
+        x1, x2, x3 = x
+        return np.array([
+            3 * x1 - np.cos(x2 * x3) - 0.5,
+            x1**2 - 81 * (x2 + 0.1)**2 + np.sin(x3) + 1.06,
+            np.exp(-x1 * x2) + 20 * x3 + (10 * np.pi - 3) / 3,
+        ])
+
+    def J1(x):
+        x1, x2, x3 = x
+        return np.array([
+            [3.0,                    x3 * np.sin(x2 * x3),  x2 * np.sin(x2 * x3)],
+            [2 * x1,                 -162 * (x2 + 0.1),     np.cos(x3)],
+            [-x2 * np.exp(-x1 * x2), -x1 * np.exp(-x1 * x2), 20.0],
+        ])
+
+    x0 = [0.1, 0.1, -0.1]
+    x_exato = [0.5, 0.0, -np.pi / 6]
+
+    print("Exemplo 1 — jacobiana analítica\n")
+    x, k = newton_sistema(F1, x0, J1)
+    print(f"\nSolução em {k} iterações: {x}")
+    print(f"Erro ||x - x*||_inf = {np.linalg.norm(x - x_exato, np.inf):.3e}\n")
+
+    print("Exemplo 1 — jacobiana por diferenças finitas\n")
+    x, k = newton_sistema(F1, x0)
+    print(f"\nSolução em {k} iterações: {x}\n")
+
+    print("Exemplo 1 — verificação da convergência quadrática\n")
+    ordem_convergencia(F1, x0, x_exato, J1)
+    print("(e_k+1/e_k -> 0 e e_k+1/e_k^2 ≈ constante: ordem 2)\n")
+
+    # ------------------------------------------------------------------
+    # Exemplo 2: interseção da circunferência com a hipérbole
+    #   x^2 + y^2 - 4 = 0
+    #   x y - 1       = 0
+    # Quatro soluções; a aproximação inicial decide qual é encontrada.
+    # ------------------------------------------------------------------
+    F2 = lambda v: np.array([v[0]**2 + v[1]**2 - 4, v[0] * v[1] - 1])
+    J2 = lambda v: np.array([[2 * v[0], 2 * v[1]], [v[1], v[0]]])
+
+    print("=" * 60)
+    print("Exemplo 2 — x^2 + y^2 = 4,  xy = 1 (diferentes x0)\n")
+    for x0 in ([2.0, 0.5], [0.5, 2.0], [-2.0, -0.5], [-0.5, -2.0]):
+        x, k = newton_sistema(F2, x0, J2, verbose=False)
+        print(f"x0 = {str(x0):<14} ->  x* = ({x[0]: .12f}, {x[1]: .12f})  em {k} iterações")
+
+    # J singular em x = y (det J = 2x^2 - 2y^2 = 0)
+    print("\nx0 = [1, 1] (jacobiana singular):")
+    try:
+        newton_sistema(F2, [1.0, 1.0], J2, verbose=False)
+    except RuntimeError as e:
+        print("  ", e)
